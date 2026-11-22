@@ -17,6 +17,17 @@ from models import STModel
 
 PLOT_SENSORS = [0, 300, 600]  # same three sensors as the Q3(a) plot
 
+# model name -> (graph type, time-of-day input, exclude sensors without training data from the learned graph)
+VARIANTS = {
+    "temporal": (None, False, False),
+    "fixed": ("fixed", False, False),
+    "adaptive": ("adaptive", False, False),
+    "hybrid": ("hybrid", False, False),
+    # control experiments for the Q6 analysis
+    "adaptive_nomiss": ("adaptive", False, True),
+    "temporal_tod": (None, True, False),
+}
+
 
 def set_seed(seed):
     random.seed(seed)
@@ -70,7 +81,7 @@ def save_atomic(obj, path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", required=True, choices=["temporal", "fixed", "adaptive", "hybrid"])
+    ap.add_argument("--model", required=True, choices=list(VARIANTS))
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--patience", type=int, default=5)
     ap.add_argument("--batch", type=int, default=64)
@@ -93,12 +104,14 @@ def main():
     last_path = os.path.join(ckpt_dir, "last.pt")
     best_path = os.path.join(ckpt_dir, "best.pt")
 
-    ds, scaler, times, bounds = build_datasets()
+    graph, tod, exclude_missing = VARIANTS[args.model]
+    ds, scaler, times, bounds = build_datasets(tod=tod)
     train_ds, val_ds, test_ds = ds["train"], ds["val"], ds["test"]
     num_nodes = train_ds.x.shape[1]
-    graph = None if args.model == "temporal" else args.model
+    exclude = (~train_ds.m.any(0)).numpy() if exclude_missing else None
     model = STModel(num_nodes, graph=graph, fixed_adj=np.load(ADJ_PATH), hidden=args.hidden,
-                    emb_dim=args.emb, topk=args.topk, alpha_init=args.alpha)
+                    emb_dim=args.emb, topk=args.topk, alpha_init=args.alpha,
+                    in_dim=3 if tod else 1, exclude=exclude)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"model={args.model} params={n_params} train/val/test windows="

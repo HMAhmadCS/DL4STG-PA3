@@ -53,9 +53,11 @@ class WindowDataset(Dataset):
     every window index lies in [start, end) so no window crosses a split boundary.
     """
 
-    def __init__(self, x_norm, flow, mask, rng):
+    def __init__(self, x_norm, flow, mask, rng, tod=None):
         s, e = rng
         self.x = torch.from_numpy(x_norm[s:e]).float()
+        # optional (sin, cos) time-of-day features of each input step, shape (T, 2)
+        self.tod = None if tod is None else torch.from_numpy(tod[s:e]).float()
         self.y = torch.from_numpy(flow[s:e]).float()
         self.m = torch.from_numpy(mask[s:e])
         self.n = (e - s) - IN_LEN - OUT_LEN + 1
@@ -73,13 +75,29 @@ class WindowDataset(Dataset):
         """Vectorised __getitem__ for a tensor of window indices -> (B, T, N, 1) tensors."""
         ti = idx[:, None] + torch.arange(IN_LEN)
         to = idx[:, None] + IN_LEN + torch.arange(OUT_LEN)
-        return self.x[ti].unsqueeze(-1), self.y[to].unsqueeze(-1), self.m[to].unsqueeze(-1)
+        x = self.x[ti].unsqueeze(-1)
+        if self.tod is not None:
+            t = self.tod[ti].unsqueeze(2).expand(-1, -1, x.shape[2], -1)  # (B, T, N, 2)
+            x = torch.cat([x, t], dim=-1)
+        return x, self.y[to].unsqueeze(-1), self.m[to].unsqueeze(-1)
 
 
-def build_datasets():
+def time_of_day(times):
+    phase = 2 * np.pi * (times.hour * 60 + times.minute).values / 1440
+    return np.stack([np.sin(phase), np.cos(phase)], 1).astype(np.float32)
+
+
+def no_train_data(mask, bounds):
+    """Sensors without a single observed value in the training period."""
+    s, e = bounds["train"]
+    return ~mask[s:e].any(0)
+
+
+def build_datasets(tod=False):
     times, flow, mask = load_processed()
     bounds = split_bounds(times)
     scaler = Scaler(flow, mask, bounds["train"])
     x_norm = scaler.transform(flow).astype(np.float32)
-    ds = {k: WindowDataset(x_norm, flow, mask, r) for k, r in bounds.items()}
+    tod = time_of_day(times) if tod else None
+    ds = {k: WindowDataset(x_norm, flow, mask, r, tod) for k, r in bounds.items()}
     return ds, scaler, times, bounds

@@ -54,14 +54,23 @@ class AdaptiveAdjacency(nn.Module):
     flow to E1 and E2 through the k retained logits of each row.
     """
 
-    def __init__(self, num_nodes, emb_dim=10, topk=20):
+    def __init__(self, num_nodes, emb_dim=10, topk=20, exclude=None):
         super().__init__()
         self.e1 = nn.Parameter(torch.randn(num_nodes, emb_dim))
         self.e2 = nn.Parameter(torch.randn(num_nodes, emb_dim))
         self.topk = topk
+        # Optional boolean mask of sensors that may not be used as (non-self) neighbours.
+        if exclude is not None:
+            block = torch.as_tensor(exclude, dtype=torch.bool)[None, :].repeat(num_nodes, 1)
+            block.fill_diagonal_(False)
+            self.register_buffer("block", block)
+        else:
+            self.block = None
 
     def forward(self):
         logits = F.relu(self.e1 @ self.e2.T)
+        if self.block is not None:
+            logits = logits.masked_fill(self.block, float("-inf"))
         if self.topk:
             kth = logits.topk(self.topk, dim=1).values[:, -1:]
             logits = logits.masked_fill(logits < kth, float("-inf"))
@@ -84,17 +93,17 @@ class STModel(nn.Module):
     """graph in {None, 'fixed', 'adaptive', 'hybrid'}; None gives the temporal-only baseline."""
 
     def __init__(self, num_nodes, graph=None, fixed_adj=None, hidden=32, emb_dim=10, topk=20,
-                 alpha_init=0.5):
+                 alpha_init=0.5, in_dim=1, exclude=None):
         super().__init__()
         self.graph = graph
-        self.encoder = TemporalEncoder(hidden=hidden)
+        self.encoder = TemporalEncoder(in_dim=in_dim, hidden=hidden)
         self.head = ForecastHead(hidden)
         if graph is not None:
             self.gconv = GraphConv(hidden)
         if graph in ("fixed", "hybrid"):
             self.register_buffer("a_fixed", torch.tensor(row_normalize(fixed_adj), dtype=torch.float32))
         if graph in ("adaptive", "hybrid"):
-            self.adaptive = AdaptiveAdjacency(num_nodes, emb_dim, topk)
+            self.adaptive = AdaptiveAdjacency(num_nodes, emb_dim, topk, exclude)
         if graph == "hybrid":
             # alpha = sigmoid(theta) stays in [0, 1] and is learned
             self.alpha_logit = nn.Parameter(torch.logit(torch.tensor(alpha_init)))

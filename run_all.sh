@@ -5,7 +5,8 @@ set -e
 cd "$(dirname "$0")"
 PY=${PY:-.venv/bin/python}
 mkdir -p outputs/logs
-for m in temporal fixed adaptive hybrid; do
+# The last two are control experiments for the Q6 analysis.
+for m in temporal fixed adaptive hybrid adaptive_nomiss temporal_tod; do
     if [ -f "outputs/results/metrics_$m.json" ]; then
         echo "skip $m (done)"
         continue
