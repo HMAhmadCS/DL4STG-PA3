@@ -143,6 +143,8 @@ def graph_analysis(key):
     tod = (times[tr[0]:tr[1]].hour * 4 + times[tr[0]:tr[1]].minute // 15).values
     resid = x - x.groupby(tod).transform("mean")
     rcorr = resid.corr(min_periods=96 * 30).values
+    miss = 1 - mask[tr[0]:tr[1]].mean(0)
+    nodata = miss == 1  # sensors with no observed training value (inputs fully imputed)
 
     rng = np.random.default_rng(0)
     rand = np.zeros_like(phys)
@@ -180,12 +182,23 @@ def graph_analysis(key):
         "learned_top1_per_node": summ(top1),
         "learned_strongest_5pct": summ(strongest),
         "learned_not_physical": summ(learned & ~phys),
+        "learned_into_observed": summ(learned & ~nodata[None, :]),
         "random_20_per_node": summ(rand),
         "physical_density": float(phys.sum() / off.sum()),
         "spearman_weight_vs_resid_corr": float(pd.Series(L[learned]).corr(pd.Series(rcorr[learned]), method="spearman")),
     }
     # Weight mass the learned graph puts on physical edges
     res["learned_mass_on_physical"] = float((L * phys).sum() / (L * off).sum())
+    # Weight the learned graph puts on sensors whose training inputs are entirely imputed
+    col_mass = (L * off).sum(0)
+    order = np.argsort(-col_mass)
+    res["n_no_train_data"] = int(nodata.sum())
+    res["mass_on_no_train_data"] = float(col_mass[nodata].sum() / col_mass.sum())
+    res["frac_edges_into_no_train_data"] = float(learned[:, nodata].sum() / learned.sum())
+    res["top10_cols_mass_share"] = float(col_mass[order[:10]].sum() / col_mass.sum())
+    res["top10_cols_no_train_data"] = int(nodata[order[:10]].sum())
+    res["columns_used"] = int((learned.sum(0) > 0).sum())
+    res["spearman_colmass_vs_missing"] = float(pd.Series(col_mass).corr(pd.Series(miss), method="spearman"))
     with open(os.path.join(RES, f"learned_graph_{key}.json"), "w") as f:
         json.dump(res, f, indent=2)
 
@@ -233,6 +246,8 @@ def graph_analysis(key):
     for i, j in zip(ii, jj):
         c = "tab:blue" if phys[i, j] else "tab:red"
         ax.plot([meta.Lng[i], meta.Lng[j]], [meta.Lat[i], meta.Lat[j]], color=c, lw=0.6, alpha=0.6, zorder=2)
+    ax.scatter(meta.Lng[nodata], meta.Lat[nodata], s=40, marker="x", c="black", zorder=3,
+               label="sensor without training data")
     ax.plot([], [], color="tab:blue", label="also in road graph")
     ax.plot([], [], color="tab:red", label="not in road graph")
     ax.set_title(f"Strongest 5% learned edges ({key})")
@@ -243,8 +258,35 @@ def graph_analysis(key):
     fig.savefig(os.path.join(FIG, f"q6_learned_edges_map_{key}.pdf"), dpi=200)
     plt.close(fig)
 
+    # Learned in-weight of each sensor vs its share of missing training data
+    fig, ax = plt.subplots(figsize=(6, 3.4))
+    ax.scatter(miss * 100, col_mass, s=8, alpha=0.6)
+    ax.set_xlabel("missing training values of sensor $j$ (%)")
+    ax.set_ylabel("learned in-weight $\\sum_i A_{ij}$")
+    ax.set_title(f"Where the learned graph ({key}) puts its weight")
+    fig.tight_layout()
+    fig.savefig(os.path.join(FIG, f"q6_inweight_vs_missing_{key}.pdf"))
+    plt.close(fig)
+
     print(json.dumps(res, indent=1))
     return res
+
+
+CONTROLS = [("adaptive_nomiss", "STGNN, adaptive, no-data sensors excluded"),
+            ("temporal_tod", "Temporal-only + time-of-day input")]
+
+
+def control_table():
+    rows = []
+    for k, name in CONTROLS:
+        f = os.path.join(RES, f"metrics_{k}.json")
+        if os.path.exists(f):
+            m = json.load(open(f))
+            rows.append(f"{name} & {m['val']['mae']:.2f} & {m['val']['rmse']:.2f} & {m['test']['mae']:.2f} & "
+                        f"{m['test']['rmse']:.2f} & {m['epochs_run']} ({m['best_epoch']}) & {m['train_time_s'] / 60:.1f} \\\\")
+            print(f"{k:16s} val {m['val']['mae']:.2f}/{m['val']['rmse']:.2f} test {m['test']['mae']:.2f}/{m['test']['rmse']:.2f}")
+    with open(os.path.join(RES, "table_controls.tex"), "w") as f:
+        f.write("\n".join(rows) + "\n")
 
 
 def main():
@@ -253,7 +295,8 @@ def main():
     tables(met)
     curves(met)
     pred_plots(met)
-    for k in ("adaptive", "hybrid"):
+    control_table()
+    for k in ("adaptive", "hybrid", "adaptive_nomiss"):
         if os.path.exists(os.path.join(RES, f"adaptive_adj_{k}.npy")):
             graph_analysis(k)
 
