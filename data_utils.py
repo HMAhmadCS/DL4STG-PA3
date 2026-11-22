@@ -69,6 +69,12 @@ class WindowDataset(Dataset):
         m = self.m[i + IN_LEN:i + IN_LEN + OUT_LEN]           # observed targets
         return x.unsqueeze(-1), y.unsqueeze(-1), m.unsqueeze(-1)
 
+    def batch(self, idx):
+        """Vectorised __getitem__ for a tensor of window indices -> (B, T, N, 1) tensors."""
+        ti = idx[:, None] + torch.arange(IN_LEN)
+        to = idx[:, None] + IN_LEN + torch.arange(OUT_LEN)
+        return self.x[ti].unsqueeze(-1), self.y[to].unsqueeze(-1), self.m[to].unsqueeze(-1)
+
 
 def build_datasets():
     times, flow, mask = load_processed()
