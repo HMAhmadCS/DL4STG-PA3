@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import LogNorm
 
-from data_utils import ADJ_PATH, META_PATH
+from data_utils import ADJ_PATH, META_PATH, load_processed
 
 FIG_DIR = "outputs/figures"
 RES_DIR = "outputs/results"
@@ -90,7 +90,10 @@ def main(sensor=None):
 
     # Q3(c): one- and two-hop neighbourhoods (outgoing edges, N(i) = {j : A_ij != 0})
     if sensor is None:
-        sensor = int(np.argsort(out_deg)[len(out_deg) // 2 + 200])  # a moderately connected sensor
+        # a well-connected sensor that is observed for most of the period
+        _, _, mask = load_processed()
+        ok = np.flatnonzero(mask.mean(0) > 0.95)
+        sensor = int(ok[np.argsort(out_deg[ok])][int(0.8 * len(ok))])
     one = set(np.flatnonzero(nz[sensor]))
     two = set()
     for j in one:
