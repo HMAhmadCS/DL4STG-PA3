@@ -32,8 +32,8 @@ deletes the 7 GB files again (pass `--keep` to keep them).
 ## Reproduce
 
 ```bash
-python3 q1_aggregation.py
-python3 q2_direction.py
+.venv/bin/python q1_aggregation.py
+.venv/bin/python q2_direction.py
 .venv/bin/python prepare_data.py
 .venv/bin/python graph_analysis.py
 ./run_all.sh            # temporal, fixed, adaptive, hybrid + 2 controls
