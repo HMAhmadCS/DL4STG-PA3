@@ -11,8 +11,9 @@
 | `data_utils.py` | Q4(a): chronological splits, train-only normalisation, 8→4 sliding windows |
 | `models.py` | Q4/Q5: temporal encoder, graph convolution, forecast head, fixed/adaptive/hybrid adjacency |
 | `train.py` | Training and evaluation of one model, checkpointed every epoch (resumable) |
-| `run_all.sh` | Trains the four models one after another |
+| `run_all.sh` | Trains the four models, then two control models (`adaptive_nomiss`, `temporal_tod`) |
 | `analyze.py` | Q6: comparison tables, prediction plots, learned-graph analysis |
+| `probe_adjacency.py` | Q6: swaps the trained adaptive model's adjacency at test time |
 
 ## Setup
 
@@ -35,8 +36,9 @@ python3 q1_aggregation.py
 python3 q2_direction.py
 .venv/bin/python prepare_data.py
 .venv/bin/python graph_analysis.py
-./run_all.sh            # temporal, fixed, adaptive, hybrid
+./run_all.sh            # temporal, fixed, adaptive, hybrid + 2 controls
 .venv/bin/python analyze.py
+.venv/bin/python probe_adjacency.py
 ```
 
 Figures go to `outputs/figures/`, metrics/tables to `outputs/results/`, logs to `outputs/logs/`.
